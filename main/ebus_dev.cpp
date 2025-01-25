@@ -116,8 +116,8 @@ void EbusDevice::WriteID(EbusBuffer<N,M> &buffer, uint8_t manu, const char*name,
 {
     buffer.AddPayload(manu);
     buffer.AddPayload(name, 5);
-    buffer.AddPayloadBCD(sw);
-    buffer.AddPayloadBCD(hw);
+    buffer.AddPayloadVersion(sw);
+    buffer.AddPayloadVersion(hw);
 }
 
 template void EbusDevice::WriteID(EbusBuffer<22,4> &buffer, uint8_t manu, const char*name, uint16_t sw, uint16_t hw);

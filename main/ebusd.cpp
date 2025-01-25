@@ -23,7 +23,7 @@ class EbusdMonitor : public EbusMonitor
     uint8_t prev = 0;
 
     enum class EbusdState {
-        Idle, CommandSend, Responding
+        Idle, CommandSend, ResponseACK, ResponseSYN
     } ebusdState = EbusdState::Idle; 
 
 public:
@@ -32,10 +32,21 @@ public:
         sender = _sender;
     }
 
+    void sendCmd(uint8_t cmd, uint8_t data)
+    {
+        if (cmd != 1 || data >= 0x80) {
+            uint8_t txbuf[2];
+            txbuf[0] = 0xc0 | (cmd<<2) | ((data>>6)&3);
+            txbuf[1] = 0x80 | (data & 0x3f);
+            send(fd_sock, txbuf, 2, 0);
+        } else {
+            send(fd_sock, &data, 1, 0);
+        }
+    }
+
     void ProcessClient()
     {
         uint8_t buf[10];
-        uint8_t txbuf[2];
 
         int len = recv(fd_sock, buf, sizeof(buf)-1, 0);
         if (len == 0) {
@@ -62,7 +73,7 @@ public:
                     } else {
                         cmd = (prev>>2) & 0xf;
                         c = (c&0x3f) | ((prev&3)<<6);
-                        ESP_LOGI(TAG,"Cmd %d data %02x", cmd, c);
+//                        ESP_LOGI(TAG,"Cmd %d data %02x", cmd, c);
                         prev = 0;
                     }
                 } else {
@@ -70,49 +81,53 @@ public:
                         printf("unexpected raw %02x have prev %02x\r\n", c, prev);
                         cmd = 100;
                     } else {
-                        printf("char %02x\r\n", c);
+//                        printf("char %02x\r\n", c);
                         cmd = 1; // just data
                     }
                 }
 
-                switch(cmd){
+                switch(cmd) {
                     case 0: //reset
-                        txbuf[0] = 0xc0;
-                        txbuf[1] = 0x81;
-                        send(fd_sock, txbuf, 2, 0);
+                        sendCmd(0, 1);
                         break;
                     case 1: // data
-                        if (ebusdState == EbusdState::CommandSend)
-                        {
-                            auto end = msg.Write(c);
-                        
-                            if ( c < 0x80) {
-                                txbuf[0] = c;
-                                send(fd_sock, txbuf, 1, 0);
-                            } else {
-                                txbuf[0] = 0xc4 | ((c>>6)&3);
-                                txbuf[1] = 0x80 | (c & 0x3f);
-                                send(fd_sock, txbuf, 2, 0);
-                            }
+                        switch (ebusdState) {
+                            case EbusdState::CommandSend:
+                            {
+                                auto end = msg.Write(c);
+                            
+                                sendCmd(1,c);
 
-                            if (end) {
-                                ESP_LOGI(TAG, "Sending packet len %d", msg.GetBufferLength());
-                                if ( sender )
-                                    sender->Send(msg);
-                                ebusdState = msg.GetDest() == BROADCAST_ADDR ? EbusdState::Idle : EbusdState::Responding;
-                                msg.Reset();
+                                if (end) {
+                                    ESP_LOGI(TAG, "Sending packet len %d", msg.GetBufferLength());
+                                    if ( sender )
+                                        sender->Send(msg);
+                                    ebusdState = msg.GetDest() == BROADCAST_ADDR ? EbusdState::Idle : EbusdState::ResponseACK;
+                                    msg.Reset();
+                                }
                             }
-
+                            break; 
+                        case EbusdState::ResponseACK:
+                            sendCmd(1,c);
+                            ebusdState = EbusdState::ResponseSYN;
+                            break;
+                        case EbusdState::ResponseSYN:
+                            sendCmd(1,c);
+                            ebusdState = EbusdState::Idle;
+                            break;
+                        default:
+                            ESP_LOGI(TAG, "Unexpected data %02x in state %d", c, (int)ebusdState);
                         }
                         break;
                     case 2: //start
-                        txbuf[0] = 0xc0 | (2<<2);
-                        txbuf[1] = 0x80 | c; // master id
-                        send(fd_sock, txbuf, 2, 0);
+                        sendCmd(2,c);
                         msg.Reset();
                         if ( c != 0xaa) {
                             msg.Write(c);
                             ebusdState = EbusdState::CommandSend;
+                        } else {
+                            ESP_LOGI(TAG, "Start reset");
+                            ebusdState = EbusdState::Idle;
                         }
                         break;
                     case 3: // info
@@ -123,6 +138,10 @@ public:
                             send(fd_sock, infobuf, 18,0);
                         }
                         break;
+                    default:
+                        ESP_LOGI(TAG,"Cmd %d data %02x", cmd, c);
+                        break;
+
                 }
             }
         }

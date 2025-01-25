@@ -68,6 +68,13 @@ static int get_version(int argc, char **argv)
            info.features & CHIP_FEATURE_EMB_FLASH ? "/Embedded-Flash:" : "/External-Flash:",
            spi_flash_get_chip_size() / (1024 * 1024), " MB");
     printf("\trevision number:%d\r\n", info.revision);
+
+    time_t now = time(0);
+    struct tm *t = localtime(&now);
+    char buf[40];
+    strftime(buf, sizeof(buf), "%c", t);
+    printf("Time:%s", buf);
+
     return 0;
 }
 

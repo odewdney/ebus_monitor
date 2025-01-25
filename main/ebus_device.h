@@ -23,6 +23,12 @@ protected:
     EbusBus *bus;
     uint8_t masterAddress;
     TimerHandle_t bcastTimer;
+
+    virtual bool ProcessTimer(int cnt);
+
+    int cnt = 0;
+    static void processMasterTimer(TimerHandle_t handle);
+
 public:
     EbusDeviceBase(uint8_t addr, uint8_t m, const char *n,uint16_t s, uint16_t h,EbusBus *b)
         :EbusDeviceBase1(addr+5, m,n,s,h)
@@ -31,13 +37,7 @@ public:
         bus = b;
     }
 
-
-    bool ProcessTimer(int cnt);
-
-    int cnt = 0;
-    static void processMasterTimer(TimerHandle_t handle);
     void start();
-
 };
 
 class EbusDeviceBridgeBase : public EbusDeviceBase, public EbusBus

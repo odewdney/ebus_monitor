@@ -16,6 +16,7 @@
 #include "sys/reent.h"
 
 #include <sys/socket.h>
+#include "lwip/apps/sntp.h"
 
 const char*tag = "main";
 #define TAG tag
@@ -29,6 +30,23 @@ static void initialize_nvs()
     }
     ESP_ERROR_CHECK(err);
 }
+
+
+/*
+// definition to expand macro then apply to pragma message 
+#define VALUE_TO_STRING(x) #x
+#define VALUE(x) VALUE_TO_STRING(x)
+#define VAR_NAME_VALUE(var) #var "="  VALUE(var)
+
+// Some example here
+#pragma message(VAR_NAME_VALUE(SNTP_SET_SYSTEM_TIME_NTP))
+#pragma message(VAR_NAME_VALUE(SNTP_SET_SYSTEM_TIME_US))
+#pragma message(VAR_NAME_VALUE(SNTP_OPMODE_LISTENONLY))
+*/
+
+void initialize_sntp();
+void register_sntp_cmd();
+
 
 void initialize_console();
 void register_console_cmd();
@@ -131,6 +149,7 @@ sw_open_tx(swlog, 74880);
 ets_printf("ets log\r\n");
 
     initialise_wifi(true);
+    initialize_sntp();
 
     start_ebus_task();
 
@@ -139,6 +158,7 @@ ets_printf("ets log\r\n");
     initialize_console();
     register_console_cmd();
     register_ebus_cmds();
+    register_sntp_cmd();
 
 /*
 // UART 1 Init

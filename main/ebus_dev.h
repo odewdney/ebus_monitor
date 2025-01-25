@@ -30,6 +30,12 @@ public:
         buffer[M+(++buffer[M])] = c;
     }
 
+    void AddPayloadBCD(uint8_t c)
+    {
+        c = ((c/10)<<4) | (c%10);
+        buffer[M+(++buffer[M])] = c;
+    }
+
     void AddPayload(const char *c, int len)
     {
         while(len--)
@@ -47,7 +53,7 @@ public:
         AddPayloadWord((uint16_t)d);
     }
 
-    void AddPayloadBCD(uint16_t d)
+    void AddPayloadVersion(uint16_t d)
     {
         buffer[M+(++buffer[M])] = d>>8;
         buffer[M+(++buffer[M])] = d & 0xff;

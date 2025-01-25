@@ -17,6 +17,8 @@
 
 #include <queue>
 
+#include "lwip/apps/sntp.h"
+
 #define SYN_Time 140
 #define SYN_Timeout(m) ((masterAddress * 10 + 10 + SYN_Time)/ portTICK_PERIOD_MS)
 
@@ -28,7 +30,7 @@ static const char* TAG ="EBUS";
 
 uint8_t masterAddress = EBUS_ADDR(2,1); // 0x71
 uart_port_t uart_num = UART_NUM_0;
-uint8_t lock_max = 10;
+uint8_t lock_max = 5;
 uint8_t lock_counter;
 
 
@@ -110,6 +112,41 @@ public:
         auto sendMsg = new EbusMessage(msg);
         bus->QueueMessage(sendMsg);
     }
+
+    bool ProcessTimer(int cnt)
+    {
+        if ((cnt % 60)  == 1){
+            auto m = sntp_get_sync_status();
+            if ( m == SNTP_SYNC_STATUS_COMPLETED) {
+
+                time_t now = time(0);
+                struct tm *t = localtime(&now);
+
+                char buf[40];
+                strftime(buf, sizeof(buf), "%c", t);
+
+                ESP_LOGI(name, "SNTP sync %s", buf);
+
+                // B:Req: 10 fe b516 (8) Data: 00 46 10 15 05 09 04 24 (cb)
+                // Broadcast datetime: Thu Sep  5 15:10:46 2024
+
+                auto msg = new EbusMessage(masterAddress, BROADCAST_ADDR, 0xb516);
+                msg->AddPayload(0);
+                msg->AddPayloadBCD(t->tm_sec);
+                msg->AddPayloadBCD(t->tm_min);
+                msg->AddPayloadBCD(t->tm_hour);
+                msg->AddPayloadBCD(t->tm_mday);
+                msg->AddPayloadBCD(t->tm_mon+1);
+                msg->AddPayloadBCD(t->tm_wday);
+                msg->AddPayloadBCD(t->tm_year % 100);
+                msg->SetCRC();
+                bus->QueueMessage(msg);
+            }
+        }
+
+        return EbusDeviceBase::ProcessTimer(cnt);
+    }
+
 };
 
 
@@ -235,7 +272,7 @@ void EbusBusStream::ebusTaskCallback()
                     if (cmd != nullptr) {
                         // send Source - arb
                         SendChar(cmd->GetSource());
-                        lock_counter = lock_max;
+                        //lock_counter = lock_max;
                         state = 100;
                     }
                 } else {
@@ -367,6 +404,7 @@ void EbusBusStream::ebusTaskCallback()
                             cmd = nullptr;
                         } else {
                             ESP_LOGI(TAG, "Failed arb %02x %02x", c, cmd->GetSource());
+                            lock_counter = lock_max;
                             if ( cmd_retry-- == 0) {
                                 delete cmd;
                                 cmd = nullptr;
