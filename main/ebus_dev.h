@@ -256,7 +256,7 @@ public:
 class EbusMonitor
 {
 public:
-    virtual void Notify(EbusMessage const &msg) = 0;
+    virtual void NotifyBroadcast(EbusMessage const &msg) = 0;
     virtual void Notify(EbusMessage const &msg, EbusResponse const &response) = 0;
 };
 

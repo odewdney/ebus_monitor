@@ -121,10 +121,16 @@ public:
 
 };
 
-static const uint8_t VR32_addr[] = {0,0,0x13,0x33};
+// 1-based
+static const uint8_t VR32_addr[] = {0,0x13,0x33};
 
 EbusDeviceBridgeBase *CreateBridgeDevice(uint8_t index, EbusBus *bus)
 {
+    if (index < 2 || index > sizeof(VR32_addr))
+        return nullptr;
+
+    index--;
+
     return new EbusDeviceBridge(VR32_addr[index], bus);
 }
 

@@ -100,9 +100,9 @@ public:
 
                                 if (end) {
                                     ESP_LOGI(TAG, "Sending packet len %d", msg.GetBufferLength());
+                                    ebusdState = msg.GetDest() == BROADCAST_ADDR ? EbusdState::Idle : EbusdState::ResponseACK;
                                     if ( sender )
                                         sender->Send(msg);
-                                    ebusdState = msg.GetDest() == BROADCAST_ADDR ? EbusdState::Idle : EbusdState::ResponseACK;
                                     msg.Reset();
                                 }
                             }
@@ -257,20 +257,15 @@ public:
         }
     }
 
-    void Notify(EbusMessage const &msg)
-    {}
-
-    void Notify(EbusMessage const &msg, EbusResponse const &response)
+    void SendBuffer(const uint8_t *data, size_t len, bool ack)
     {
-        if ( fd_sock == -1) return;
-
         uint8_t buf[100];
         int pos = 0;
 
-        buf[pos++] = ACK;
-        auto m = response.GetBufferLength();
-        auto p = response.GetBuffer();
-        for(int n = 0; n < m; n++)
+        if ( ack )
+            buf[pos++] = ACK;
+        auto p = data;
+        for(int n = 0; n < len; n++)
         {
             auto c = *p++;
             if ( c < 0x80)
@@ -282,7 +277,26 @@ public:
         }
 
         send(fd_sock, buf, pos, 0);
-ESP_LOGI(TAG, "Responded %d->%d", m,pos);
+ESP_LOGI(TAG, "Responded %d->%d", len,pos);
+
+    }
+
+    void NotifyBroadcast(EbusMessage const &msg)
+    {
+        if ( fd_sock == -1) return;
+        if ( ebusdState != EbusdState::Idle) return;
+
+        SendBuffer(msg.GetBuffer(), msg.GetBufferLength(), false);
+    }
+
+    void Notify(EbusMessage const &msg, EbusResponse const &response)
+    {
+        if ( fd_sock == -1) return;
+        if ( ebusdState == EbusdState::ResponseACK ) {
+            SendBuffer(response.GetBuffer(), response.GetBufferLength(), true);
+        } else {
+            ESP_LOGI(TAG, "Response too late");
+        }
     }
     
     void start()

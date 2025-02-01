@@ -24,14 +24,17 @@ enum class StateCode : uint8_t {
     // Other
     NoCallForHeat=30, 
      };
+enum class DisableFlags { None=0, CH=1, DHWtapping=2, DHWloading=4, };
 
 class EbusDeviceBoiler : public EbusDeviceBase
 {
     // inputs
     float tempDesired, hwcDesired;
-    bool hcDisabled, hwcDisabled, stgDesired;
+    bool stgDesired;
     HcMode hcMode;
     HwcMode hwcMode;
+    DisableFlags disableFlags;
+
     uint8_t cirSpeed;
 
     // sensors
@@ -53,11 +56,10 @@ public:
         tempDesired = 0.5;
         hwcDesired = 1.5;
         stgDesired = 2.5;
-        hcDisabled = true;
-        hwcDisabled = true;
+        disableFlags = DisableFlags::None;
         cirSpeed = 0;
 
-        hcMode = HcMode::Auto; //0=auto, 1=off, 2=heat, 3=water
+        hcMode = HcMode::Auto;
         hwcMode = HwcMode::Auto;
 
         // sensors
@@ -99,7 +101,12 @@ public:
                         return true;
                     }
                     case 0x10: // outside
-                        break;
+                        {
+                            auto resp = new EbusResponse();
+                            resp->AddPayloadWord(0xffff);
+                            *response = resp;
+                            return true;
+                        };
                 }
                 break;
             case 0xb505: // write
@@ -115,6 +122,7 @@ public:
                                 //  00 00 00 76 ff ff 01 00 00
                                 //  00 00 3c 76 ff ff 00 ff 00
                                 //  00 00 ff ff ff ff 05 00 00
+                                // others: SetPointLoadingPump, CHDisableMonitor
                                 auto hcModeSet = data[1];
                                 auto hcTempSet = msg.ReadPayloadData1c(2);
                                 auto hwTempSet = msg.ReadPayloadData1c(3);
@@ -122,6 +130,7 @@ public:
                                 // 5 unknown ff
                                 auto flags = data[6]; //
                                 // 7 unknown 00/ff
+                                // bits 0-7: remote control CH pump/release backup heater/release cooling/not used/left stop position DHW o, bits sent in M14 
                                 auto remote = data[8];
 
                                 ESP_LOGI(name, "SetMode hcmode:%d flow:%d hwc:%d flag:%02x", hcModeSet, (int)hcTempSet, (int)hwTempSet, flags);
@@ -130,10 +139,8 @@ public:
                                     tempDesired = hcTempSet;
                                 if(!std::isnan(hwTempSet))
                                     hwcDesired = hwTempSet;
-
-                                hcDisabled = flags & 1;
-                                hwcDisabled = flags & 4;
-                                hcMode = (HcMode) data[1];
+                                hcMode = (HcMode) hcModeSet;
+                                disableFlags = (DisableFlags) flags;
 
                                 auto resp = new EbusResponse();
                                 resp->AddPayload((uint8_t)1); // ack?
@@ -142,7 +149,8 @@ public:
                             }
                     }
                 }
-                return false;
+                break;
+                //return false;
             case 0xb511: // Read Status
                 if (msg.GetPayloadLength() == 1) {
                     uint8_t id = data[0];
@@ -192,7 +200,8 @@ public:
                             break;
                     }
                 }
-                return false;
+                break;
+                //return false;
             case 0xb512:
                 { // 1008b512020064 ae00 00 00 00
                 if (msg.GetPayloadLength() > 0) {
@@ -221,7 +230,8 @@ public:
                     }
                 }
                 }
-                return false;
+                break;
+                //return false;
             case 0xb513:
                 break;
             case 0xb516: // unknown - simple return

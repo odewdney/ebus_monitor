@@ -57,6 +57,9 @@ void register_vr65_cmds();
 EbusDeviceBridgeBase *CreateBridgeDevice(uint8_t masterAddr, EbusBus *bus);
 EbusDevice *CreateBAI(EbusBus *bus);
 
+
+EbusDevice *CreateVR91Device(uint8_t sw, EbusBus *bus);
+
 extern "C"
 {
 void register_ebus_cmds();

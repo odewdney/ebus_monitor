@@ -16,6 +16,7 @@
 #include "esp_console.h"
 
 #include <queue>
+#include <map>
 
 #include "lwip/apps/sntp.h"
 
@@ -68,6 +69,9 @@ public:
 
     void ProcessBroadcastMessage(EbusMessage const &msg)
     {
+        if(monitor)
+            monitor->NotifyBroadcast(msg);
+
         if (msg.GetCmd() == 0xb516) {
             auto data = msg.GetPayload();
             switch (data[0]) {
@@ -92,8 +96,6 @@ public:
 
         }
         EbusDevice::ProcessBroadcastMessage(msg);
-        if ( monitor )
-            monitor->Notify(msg);
     }
     
     bool ProcessResponse(EbusMessage const &msg, EbusResponse const &response)
@@ -101,13 +103,46 @@ public:
         if ( monitor )
             monitor->Notify(msg, response);
         // we like everything
+
+        auto d = msg.GetPayload()[0];
+        auto cmd = msg.GetCmd();
+        if (cmd == 0x704 || 
+            (cmd == 0xb509 && 
+                d >= 0x24 && d <= 0x27)) {
+
+            cache[msg] = response;
+
+            }
+
         return true;
     }
 
     EbusMonitor *monitor = nullptr;
 
+    struct MsgComp
+    {
+        bool operator()(const EbusMessage &lhs, const EbusMessage &rhs) const
+        {
+            auto llhs = lhs.GetBufferLength();
+            auto lrhs = rhs.GetBufferLength();
+            if (llhs != lrhs)
+                return llhs < lrhs;
+            return memcmp(lhs.GetBuffer(), rhs.GetBuffer(), llhs) < 0;
+        }
+    };
+    
+    std::map<EbusMessage, EbusResponse, MsgComp> cache;
+
     void Send(EbusMessage const &msg)
     {
+        if ( monitor ) {
+            auto p = cache.find(msg);
+            if ( p != cache.end()) {
+                monitor->Notify(msg, p->second);
+                return;
+            }
+        }
+
         // clone msg
         auto sendMsg = new EbusMessage(msg);
         bus->QueueMessage(sendMsg);
@@ -120,10 +155,11 @@ public:
             if ( m == SNTP_SYNC_STATUS_COMPLETED) {
 
                 time_t now = time(0);
-                struct tm *t = localtime(&now);
+                struct tm t;
+                localtime_r(&now, &t);
 
                 char buf[40];
-                strftime(buf, sizeof(buf), "%c", t);
+                strftime(buf, sizeof(buf), "%c", &t);
 
                 ESP_LOGI(name, "SNTP sync %s", buf);
 
@@ -132,13 +168,13 @@ public:
 
                 auto msg = new EbusMessage(masterAddress, BROADCAST_ADDR, 0xb516);
                 msg->AddPayload(0);
-                msg->AddPayloadBCD(t->tm_sec);
-                msg->AddPayloadBCD(t->tm_min);
-                msg->AddPayloadBCD(t->tm_hour);
-                msg->AddPayloadBCD(t->tm_mday);
-                msg->AddPayloadBCD(t->tm_mon+1);
-                msg->AddPayloadBCD(t->tm_wday);
-                msg->AddPayloadBCD(t->tm_year % 100);
+                msg->AddPayloadBCD(t.tm_sec);
+                msg->AddPayloadBCD(t.tm_min);
+                msg->AddPayloadBCD(t.tm_hour);
+                msg->AddPayloadBCD(t.tm_mday);
+                msg->AddPayloadBCD(t.tm_mon+1);
+                msg->AddPayloadBCD(t.tm_wday);
+                msg->AddPayloadBCD(t.tm_year % 100);
                 msg->SetCRC();
                 bus->QueueMessage(msg);
             }
@@ -455,15 +491,6 @@ public:
 EbusBus *bus;
 
 
-class EbusDeviceVr91 : public EbusDeviceBase
-{
-public:
-    EbusDeviceVr91(uint8_t masterAddr, EbusBus *bus)
-        : EbusDeviceBase(masterAddr, 0xb5, "VR_91", 0x0200, 0x1903, bus)
-    {
-
-    }
-};
 
 
 
@@ -503,8 +530,8 @@ void start_ebus_task()
     auto dev = new EbusDeviceDebug(masterAddress, bus);
     uartbus->AddDevice(dev);
 
-//    auto dev91 = new EbusDeviceVr91(0x30, bus);
-//    uartbus->AddDevice(dev91);
+    auto dev91 = CreateVR91Device(1, bus);
+    uartbus->AddDevice(dev91);
 
     //auto dev70 = CreateVR70Device(0);
     //uartbus->AddDevice(dev70);
@@ -522,6 +549,8 @@ void start_ebus_task()
 // cant use vr65 with combi
 //    auto vr65 = CreateVR65Device(false, 2);
 //    uartbus->AddDevice(vr65);
+
+
 
     uartbus->start();
 
