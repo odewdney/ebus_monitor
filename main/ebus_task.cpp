@@ -18,9 +18,13 @@
 #include <queue>
 #include <map>
 
+#ifdef __INTELLISENSE__
+#include "apps/esp_sntp.h"
+#else
 #include "lwip/apps/sntp.h"
+#endif
 
-#define SYN_Time 140
+#define SYN_Time 50
 #define SYN_Timeout(m) ((masterAddress * 10 + 10 + SYN_Time)/ portTICK_PERIOD_MS)
 
 static const char* TAG ="EBUS";
@@ -220,9 +224,9 @@ protected:
         SendChar(SYN);
     }
 
-    void SynRecieved()
+    void SynRecieved(bool expected)
     {
-        if ( synMaster ) {
+        if ( synMaster && !expected) {
             // has someone else sent a syn
             uint32_t now = esp_log_early_timestamp();
             if ((now-synTime) > 10) {
@@ -314,7 +318,9 @@ void EbusBusStream::ebusTaskCallback()
                 } else {
                     lock_counter--;
                 }
-                SynRecieved();
+                // the master sends SYN on end of no tansactions
+                // either completion of 'timeout'
+                SynRecieved(oldstate == 98 || oldstate == 1);
 
                 switch (oldstate) {
                     case 0:
@@ -488,11 +494,8 @@ public:
     }
 };
 
-EbusBus *bus;
-
-
-
-
+int buscount = 0;
+EbusBus *busses[10];
 
 void start_ebus_task()
 {
@@ -524,14 +527,21 @@ void start_ebus_task()
     uart_intr_config(uart_num, &int_cfg);
 
     auto uartbus = new EbusBusUart(uart_num);
+    EbusBus *bus = uartbus;
 
-    bus = uartbus;
+    busses[buscount++] = uartbus;
 
     auto dev = new EbusDeviceDebug(masterAddress, bus);
     uartbus->AddDevice(dev);
 
     auto dev91 = CreateVR91Device(1, bus);
     uartbus->AddDevice(dev91);
+
+
+    auto dev91_2 = CreateVR91Device(2, bus);
+    uartbus->AddDevice(dev91_2);
+    auto dev91_3 = CreateVR91Device(3, bus);
+    uartbus->AddDevice(dev91_3);
 
     //auto dev70 = CreateVR70Device(0);
     //uartbus->AddDevice(dev70);
@@ -545,12 +555,11 @@ void start_ebus_task()
     auto devBAI = CreateBAI(bus32);
     bus32->AddDevice(devBAI);
 
+    busses[buscount++] = bus32;
 
 // cant use vr65 with combi
 //    auto vr65 = CreateVR65Device(false, 2);
 //    uartbus->AddDevice(vr65);
-
-
 
     uartbus->start();
 
@@ -560,6 +569,7 @@ void start_ebus_task()
 
 struct {
     struct arg_str *data;
+    struct arg_int *bus;
     struct arg_end *end;
 } ebus_data_args;
 
@@ -577,6 +587,17 @@ int ebus_data_func(int argc, char**argv)
         arg_print_errors(stderr, ebus_data_args.end, argv[0]);
         return 1;
     }
+
+    int busindex = 0;
+    if (ebus_data_args.bus->count)
+        busindex = ebus_data_args.bus->ival[0];
+
+    if (busindex < 0 || busindex >= buscount) {
+        printf("Invlid bus\r\n");
+        return 1;
+    }
+
+    auto bus = busses[busindex];
 
     auto data = ebus_data_args.data->sval[0];
     auto l = strlen(data);
@@ -601,10 +622,54 @@ int ebus_data_func(int argc, char**argv)
     return 0;
 }
 
+struct 
+{
+    struct arg_int *index;
+    struct arg_int *bus;
+    struct arg_end *end;
+} ebus_print_args;
+
+int ebus_print_func(int argc, char**argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **) &ebus_print_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, ebus_print_args.end, argv[0]);
+        return 1;
+    }
+
+    int busindex = 0;
+    if (ebus_print_args.bus->count)
+        busindex = ebus_print_args.bus->ival[0];
+
+    if (busindex < 0 || busindex >= buscount) {
+        printf("Invlid bus\r\n");
+        return 1;
+    }
+
+    auto b = busses[busindex];
+
+    auto devId = ebus_print_args.index->ival[0];
+    if (IS_MASTER(devId))
+        devId += 5;
+    auto dev = b->GetDevice(devId);
+    if (!dev) {
+        printf("Dev %02x not found\r\n", devId);
+        return 1;
+    }
+
+    dev->print();
+
+    return 0;
+}
+
 void register_ebus_cmds()
 {
+    auto bus = arg_int0("b","bus","n","id");
+    auto end = arg_end(1);
+
     ebus_data_args.data = arg_str1(NULL,NULL,"<hex>","data");
-    ebus_data_args.end = arg_end(1);
+    ebus_print_args.bus = bus;
+    ebus_data_args.end = end;
     const esp_console_cmd_t ebus_data_cmd = {
         .command = "ebus_data",
         .help = "Send Ebus data",
@@ -614,6 +679,20 @@ void register_ebus_cmds()
     };
     esp_console_cmd_register(&ebus_data_cmd);
 
+    ebus_print_args.index = arg_int1(NULL,NULL,"<hex>","id");
+    ebus_print_args.bus = bus;
+    ebus_print_args.end = end;
+    const esp_console_cmd_t ebus_print_cmd = {
+        .command = "ebus_print",
+        .help = "Print Ebus Dev",
+        .hint = NULL,
+        .func = ebus_print_func,
+        .argtable = &ebus_print_args
+    };
+    esp_console_cmd_register(&ebus_print_cmd);
+
+
+    register_bai_cmds();
     register_vr65_cmds();
     register_vr70_cmds();
 }

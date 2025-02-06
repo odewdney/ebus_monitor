@@ -59,6 +59,7 @@ EbusDevice *CreateBAI(EbusBus *bus);
 
 
 EbusDevice *CreateVR91Device(uint8_t sw, EbusBus *bus);
+void register_bai_cmds();
 
 extern "C"
 {

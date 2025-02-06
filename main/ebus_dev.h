@@ -1,4 +1,4 @@
-
+#include <math.h>
 #include <vector>
 #include <limits>
 
@@ -74,6 +74,26 @@ public:
     {
         int d = (int)(f*16);
         AddPayloadWord((uint16_t)d);
+    }
+
+    void AddPayloadDWord(uint32_t d)
+    {
+        buffer[M+(++buffer[M])] = d & 0xff;
+        d >>= 8;
+        buffer[M+(++buffer[M])] = d & 0xff;
+        d >>= 8;
+        buffer[M+(++buffer[M])] = d & 0xff;
+        d >>= 8;
+        buffer[M+(++buffer[M])] = d & 0xff;
+        d >>= 8;
+    }
+
+    void AddPayloadEXP(float f)
+    {
+        if (std::isnan(f))
+            AddPayloadDWord(0x7fffffff);
+        else
+            AddPayloadDWord(*(uint32_t*)&f);
     }
 
     float ReadPayloadData1c(uint8_t offset) const
@@ -193,9 +213,8 @@ public:
 
 class EbusDevice
 {
-    uint8_t slaveAddress;
-
 protected:
+    uint8_t slaveAddress;
     const char *name;
 
     EbusDevice(uint8_t addr, const char*name);
@@ -211,6 +230,7 @@ public:
     uint8_t GetSlaveAddress() const { return slaveAddress; }
     const char *GetName() const { return name; }
 
+    virtual void print();
     virtual void start() {}
 };
 
@@ -234,6 +254,8 @@ protected:
 public:
     void AddDevice(EbusDevice *dev);
     void RemoveDevice(EbusDevice *dev);
+    EbusDevice *GetDevice(uint8_t id);
+
     virtual void QueueMessage(EbusMessage const *msg) =0;
 };
 

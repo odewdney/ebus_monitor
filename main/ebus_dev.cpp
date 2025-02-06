@@ -123,6 +123,10 @@ void EbusDevice::WriteID(EbusBuffer<N,M> &buffer, uint8_t manu, const char*name,
 template void EbusDevice::WriteID(EbusBuffer<22,4> &buffer, uint8_t manu, const char*name, uint16_t sw, uint16_t hw);
 template void EbusDevice::WriteID(EbusBuffer<18,0> &buffer, uint8_t manu, const char*name, uint16_t sw, uint16_t hw);
 
+void EbusDevice::print()
+{
+    printf("Device: %s id:%02x\r\n", name, slaveAddress);
+}
 
 void EbusDevice::ProcessBroadcastMessage(EbusMessage const &msg)
 {
@@ -148,6 +152,17 @@ void EbusBus::RemoveDevice(EbusDevice *dev)
         devices.erase(pos);
 }
 
+EbusDevice *EbusBus::GetDevice(uint8_t dev)
+{
+    for(auto pos = devices.begin(); pos != devices.end(); pos++ ) {
+        auto device = *pos;
+        if ( device->GetSlaveAddress() == dev) {
+            return device;
+        }
+    }
+    return nullptr;
+}
+
 void EbusBus::ProcessMessage(EbusMessage const &msg)
 {
     if (msg.GetDest() == BROADCAST_ADDR)
@@ -162,32 +177,29 @@ void EbusBus::ProcessDeviceMessage(EbusMessage const &msg)
     if (IS_MASTER(dst))
         dst += 5; // get slave address for target
     ESP_LOGV(TAG, "Looking for %02x", dst);
-    for(auto pos = devices.begin(); pos != devices.end(); pos++ ) {
-        auto device = *pos;
-        if ( device->GetSlaveAddress() == dst) {
-            ESP_LOGV(TAG, "Found dev %s", device->GetName());
-            bool success = false;
-            EbusResponse *response = nullptr;
+    auto device = GetDevice(dst);
+    if (device) {
+        ESP_LOGV(TAG, "Found dev %s", device->GetName());
+        bool success = false;
+        EbusResponse *response = nullptr;
 
-            if ( msg.IsValidCRC() ) {
-                success = device->ProcessSlaveMessage(msg, &response);
-            } else {
-                ESP_LOGE(TAG, "Bad CRC");
-            }
-
-            if (success) {
-                SendACK();
-                if (response) {
-                    response->SetCRC();
-                    SendResponse(*response);
-                }
-            } else {
-                SendNAK();
-            }
-            if ( response )
-                delete response;
-            break;
+        if ( msg.IsValidCRC() ) {
+            success = device->ProcessSlaveMessage(msg, &response);
+        } else {
+            ESP_LOGE(TAG, "Bad CRC");
         }
+
+        if (success) {
+            SendACK();
+            if (response) {
+                response->SetCRC();
+                SendResponse(*response);
+            }
+        } else {
+            SendNAK();
+        }
+        if ( response )
+            delete response;
     }
 }
 
@@ -198,17 +210,14 @@ bool EbusBus::ProcessSlaveMessage(EbusMessage const &msg, EbusResponse **respons
     if (IS_MASTER(dst))
         dst += 5; // get slave address for target
     ESP_LOGV(TAG, "Looking for %02x", dst);
-    for(auto pos = devices.begin(); pos != devices.end(); pos++ ) {
-        auto device = *pos;
-        if ( device->GetSlaveAddress() == dst) {
-            ESP_LOGV(TAG, "Found dev %s", device->GetName());
+    auto device = GetDevice(dst);
+    if (device) {
+        ESP_LOGV(TAG, "Found dev %s", device->GetName());
 
-            if ( msg.IsValidCRC() ) {
-                success = device->ProcessSlaveMessage(msg, response);
-            } else {
-                ESP_LOGE(TAG, "Bad CRC");
-            }
-            break;
+        if ( msg.IsValidCRC() ) {
+            success = device->ProcessSlaveMessage(msg, response);
+        } else {
+            ESP_LOGE(TAG, "Bad CRC");
         }
     }
     return success;
@@ -216,8 +225,7 @@ bool EbusBus::ProcessSlaveMessage(EbusMessage const &msg, EbusResponse **respons
 
 void EbusBus::ProcessBroadcastMessage(EbusMessage const &msg)
 {
-    for(auto pos = devices.begin(); pos != devices.end(); pos++ ) {
-        auto device = *pos;
+    for(auto device : devices) {
         device->ProcessBroadcastMessage(msg);
     }
 }
@@ -227,20 +235,18 @@ void EbusBus::ProcessResponse(EbusMessage const &msg, EbusResponse const &respon
     auto dst = msg.GetSource();
     if (IS_MASTER(dst))
         dst += 5; // get slave address for target
-    for(auto device : devices) {
-        if ( device->GetSlaveAddress() == dst) {
-            auto success = false;
-            
-            if (msg.IsValidCRC() && response.IsValidCRC()) {
-                success = device->ProcessResponse(msg, response);
-            }
-
-            if (success)
-                SendACK();
-            else
-                SendNAK();
-            break;
+    auto device = GetDevice(dst);
+    if (device) {
+        auto success = false;
+        
+        if (msg.IsValidCRC() && response.IsValidCRC()) {
+            success = device->ProcessResponse(msg, response);
         }
+
+        if (success)
+            SendACK();
+        else
+            SendNAK();
     }
 }
 

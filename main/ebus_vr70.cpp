@@ -129,7 +129,7 @@ public:
 
     void print()
     {
-        printf("Name: %s\r\n", name);
+        printf("Name: %s id:%2x\r\n", name, slaveAddress);
         int n;
         printf("Relay:");
         for(n=0;n<5;n++)

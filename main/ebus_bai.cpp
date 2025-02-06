@@ -11,6 +11,8 @@
 #include "ebus_device.h"
 
 #include "esp_log.h"
+#include "argtable3/argtable3.h"
+#include "esp_console.h"
 
 enum class HcMode : uint8_t { Auto = 0, Off = 1, Heat = 2, Water = 3};
 enum class HwcMode : uint8_t { Disabled=0, On=1, Off=2, Auto=3 };
@@ -30,7 +32,7 @@ class EbusDeviceBoiler : public EbusDeviceBase
 {
     // inputs
     float tempDesired, hwcDesired;
-    bool stgDesired;
+    float stgDesired;
     HcMode hcMode;
     HwcMode hwcMode;
     DisableFlags disableFlags;
@@ -246,9 +248,120 @@ public:
         return EbusDeviceBase::ProcessSlaveMessage(msg, response);
     }
 
+    void print()
+    {
+        printf("BAI id:%02x", masterAddress);
+        printf("Mode hc:%d hwc:%d\r\n", (int)hcMode, (int)hwcMode);
+        printf("Desired temp:%.2f hwc:%.2f stg:%.2f\r\n", tempDesired, hwcDesired, stgDesired);
+        printf("Flags disable:%02x\r\n", (int)disableFlags);
+    }
+
+    int SetSensorsCmd(int argc, char**argv);
 };
+
+EbusDeviceBoiler *bai[3] = {nullptr};
 
 EbusDevice *CreateBAI(EbusBus *bus)
 {
-    return new EbusDeviceBoiler(0x03, bus);
+    auto b = new EbusDeviceBoiler(0x03, bus);
+    bai[0] = b;
+    return b;
+}
+
+static struct {
+    struct arg_int *num;
+    struct arg_end *end;
+} bai_print_args;
+
+int bai_print_func(int argc, char**argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **) &bai_print_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, bai_print_args.end, argv[0]);
+        return 1;
+    }
+
+    int index = 1;
+
+    if (bai_print_args.num->count)
+        index = bai_print_args.num->ival[0];
+
+    if (index < 1 || index > sizeof(bai))
+        return -1;
+
+    index--;
+    if (bai[index])
+        return -1;
+
+    bai[index]->print();
+    return 0;
+}
+
+static struct {
+    struct arg_int *num;
+    struct arg_dbl *outside;
+    struct arg_end *end;
+} bai_set_args;
+
+int bai_set_func(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **) &bai_set_args);
+    if (nerrors != 0) {
+        arg_print_errors(stderr, bai_set_args.end, argv[0]);
+        return 1;
+    }
+
+    int index = 1;
+
+    if (bai_set_args.num->count)
+        index = bai_set_args.num->ival[0];
+
+    if (index < 1 || index > sizeof(bai))
+        return -1;
+
+    index--;
+    if (bai[index])
+        return -1;
+
+    return bai[index]->SetSensorsCmd(argc, argv);    return 0;
+}
+
+int EbusDeviceBoiler::SetSensorsCmd(int argc, char**argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **) &bai_set_args);
+
+    if ( bai_set_args.outside->count) {
+        outsideTemp = bai_set_args.outside->dval[0];
+    }
+    return 0;
+}
+
+void register_bai_cmds()
+{
+    bai_print_args.num = arg_int0("n",NULL, "<num>", "index");
+    bai_print_args.end = arg_end(5);
+
+    const esp_console_cmd_t print_bai_cmd = {
+        .command = "bai_print",
+        .help = "bai print",
+        .hint = NULL,
+        .func = &bai_print_func,
+        .argtable = &bai_print_args,
+    };
+
+    ESP_ERROR_CHECK( esp_console_cmd_register(&print_bai_cmd));
+
+    bai_set_args.num = bai_print_args.num;
+    bai_set_args.outside = arg_dbl0("o","outside", "<flt>", "outside temp");
+    bai_set_args.end = bai_print_args.end;
+
+    const esp_console_cmd_t set_bai_cmd = {
+        .command = "bai_set",
+        .help = "bai set",
+        .hint = NULL,
+        .func = &bai_set_func,
+        .argtable = &bai_set_args,
+    };
+
+    ESP_ERROR_CHECK( esp_console_cmd_register(&set_bai_cmd));
 }
