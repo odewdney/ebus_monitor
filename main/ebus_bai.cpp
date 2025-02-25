@@ -51,8 +51,9 @@ class EbusDeviceBoiler : public EbusDeviceBase
     StateCode state;
 
 public:
-    EbusDeviceBoiler(uint8_t masterAddr, EbusBus *bus)
-        : EbusDeviceBase(masterAddr, 0xb5, "BAI00", 0x0518, 0x7401, bus)
+    EbusDeviceBoiler(uint8_t masterAddr, uint8_t idx, EbusBus *bus)
+        // 0x0518, 0x7401
+        : EbusDeviceBase(masterAddr, 0xb5, "BAI00", 0x0500+idx, 0x7401, bus)
     {
         // inputs
         tempDesired = 0.5;
@@ -98,11 +99,11 @@ public:
                         resp->AddPayload(0xff); // m
                         resp->AddPayload(0xff); // d
                         resp->AddPayload(0xff); // y
-                        resp->AddPayloadData2c(outsideTemp);
+                        resp->AddPayloadData2b(outsideTemp);
                         *response = resp;
                         return true;
                     }
-                    case 0x10: // outside
+                    case 0x10: // Status16 - outside
                         {
                             auto resp = new EbusResponse();
                             resp->AddPayloadWord(0xffff);
@@ -250,7 +251,7 @@ public:
 
     void print()
     {
-        printf("BAI id:%02x", masterAddress);
+        printf("BAI id:%02x\r\n", masterAddress);
         printf("Mode hc:%d hwc:%d\r\n", (int)hcMode, (int)hwcMode);
         printf("Desired temp:%.2f hwc:%.2f stg:%.2f\r\n", tempDesired, hwcDesired, stgDesired);
         printf("Flags disable:%02x\r\n", (int)disableFlags);
@@ -259,12 +260,12 @@ public:
     int SetSensorsCmd(int argc, char**argv);
 };
 
-EbusDeviceBoiler *bai[3] = {nullptr};
+EbusDeviceBoiler *bai[8] = {nullptr};
 
-EbusDevice *CreateBAI(EbusBus *bus)
+EbusDevice *CreateBAI(EbusBus *bus, uint8_t index)
 {
-    auto b = new EbusDeviceBoiler(0x03, bus);
-    bai[0] = b;
+    auto b = new EbusDeviceBoiler(0x03, index, bus);
+    bai[index] = b;
     return b;
 }
 

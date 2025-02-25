@@ -15,7 +15,7 @@
 class EbusDeviceVr91 : public EbusDeviceBase
 {
     float temp, humid, desiredTemp;
-    uint8_t index;
+    uint8_t index, zone;
     enum class Mode { Off=0, Auto=1, Day=2, Setback=3 };
 
     Mode mode;
@@ -23,13 +23,13 @@ class EbusDeviceVr91 : public EbusDeviceBase
 
     void SendReading(uint8_t reg, float val)
     {
-        if ( index == 0xff ) return;
+        if ( zone == 0xff ) return;
         auto msg = new EbusMessage(masterAddress, 0x15, 0xb524);
         //06010a010f00
         msg->AddPayload(0x06); // data
         msg->AddPayload(0x01); // 0-read 1-wr
         msg->AddPayload(0x0a); // 09=int, 0a=remote
-        msg->AddPayload(index+1); // index
+        msg->AddPayload(index); // index
 
         msg->AddPayloadWord(reg); // 7=humid f=temp
 
@@ -39,12 +39,13 @@ class EbusDeviceVr91 : public EbusDeviceBase
 
     }
 public:
-    EbusDeviceVr91(uint8_t masterAddr, EbusBus *bus)
+    EbusDeviceVr91(uint8_t masterAddr, uint8_t idx, EbusBus *bus)
     // SW=0415;HW=4803"
-        : EbusDeviceBase(masterAddr, 0xb5, "VR_91", 0x0200, 0x1903, bus)
+        : EbusDeviceBase(masterAddr, 0xb5, "VR_91", 0x0200+idx, 0x1903, bus)
     {
-        index = 0xff;
-        temp = 16.5f;
+        index = idx;
+        zone = 0xff;
+        temp = 16.5f + idx;
         humid = 49.5f;
         desiredTemp = 0.0f;
         mode = Mode::Off;
@@ -64,7 +65,7 @@ public:
                     case 8: // query
                         // resp - 08 000001010c012e30
                         if (response.GetPayloadLength() == 8){
-                            index = response.GetPayload()[0];
+                            zone = response.GetPayload()[0];
                             mode = (Mode)response.GetPayload()[2];
                             desiredTemp = response.ReadPayloadData1c(6);
                             return true;
@@ -89,9 +90,11 @@ public:
                 break;
             }
             case 10:
+            case 40:
                 SendReading(0x0f, temp);
                 break;
             case 15:
+            case 45:
                 SendReading(0x07, humid);
                 break;
         }
@@ -116,7 +119,7 @@ W (175163) VR_91: Unknown command b516
 
 //vr81 75 35 xx f5 1c 3c 7c fc
 
-// 1-based
+// 0-based
 const static uint8_t slaveAddressess[] = 
     { 0x35, 0x75, 0xf5, 0x1c, 
       0x3c, 0x7c, 0xfc, 0x06 };
@@ -129,6 +132,6 @@ EbusDevice *CreateVR91Device(uint8_t index, EbusBus *bus)
         return nullptr;
     index--;
 
-    vr91[index] = new EbusDeviceVr91(slaveAddressess[index]-5, bus);
+    vr91[index] = new EbusDeviceVr91(slaveAddressess[index]-5, index+1, bus);
     return vr91[index];
 }

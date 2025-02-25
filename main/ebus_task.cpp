@@ -17,11 +17,16 @@
 
 #include <queue>
 #include <map>
+#include <list>
 
 #ifdef __INTELLISENSE__
 #include "apps/esp_sntp.h"
 #else
 #include "lwip/apps/sntp.h"
+#endif
+
+#ifdef __INTELLISENSE__
+#define CONFIG_FREERTOS_HZ 100
 #endif
 
 #define SYN_Time 50
@@ -66,14 +71,21 @@ bool IS_MASTER(uint8_t c)
 
 class EbusDeviceDebug : public EbusDeviceBase, public EbusSender
 {
+    std::list<EbusMonitor *> monitors;
+
 public:
     EbusDeviceDebug(uint8_t addr, EbusBus *b)
         : EbusDeviceBase( addr, 0x10, "DBG01", 0x102, 0x304, b)
     {}
 
+    void AddMonitor(EbusMonitor *mon)
+    {
+        monitors.push_back(mon);
+    }
+
     void ProcessBroadcastMessage(EbusMessage const &msg)
     {
-        if(monitor)
+        for( auto monitor : monitors)
             monitor->NotifyBroadcast(msg);
 
         if (msg.GetCmd() == 0xb516) {
@@ -104,7 +116,7 @@ public:
     
     bool ProcessResponse(EbusMessage const &msg, EbusResponse const &response)
     {
-        if ( monitor )
+        for( auto monitor : monitors)
             monitor->Notify(msg, response);
         // we like everything
 
@@ -120,8 +132,6 @@ public:
 
         return true;
     }
-
-    EbusMonitor *monitor = nullptr;
 
     struct MsgComp
     {
@@ -139,10 +149,11 @@ public:
 
     void Send(EbusMessage const &msg)
     {
-        if ( monitor ) {
+        if ( !monitors.empty() ) {
             auto p = cache.find(msg);
             if ( p != cache.end()) {
-                monitor->Notify(msg, p->second);
+                for(auto monitor : monitors)
+                    monitor->Notify(msg, p->second);
                 return;
             }
         }
@@ -154,6 +165,13 @@ public:
 
     bool ProcessTimer(int cnt)
     {
+        if ((cnt % 60)  == 111){
+            auto msg = new EbusMessage(masterAddress, BROADCAST_ADDR, 0xb516);
+            msg->AddPayload(1);
+            msg->AddPayloadData2b(25.3f);
+            msg->SetCRC();
+            bus->QueueMessage(msg);
+    }
         if ((cnt % 60)  == 1){
             auto m = sntp_get_sync_status();
             if ( m == SNTP_SYNC_STATUS_COMPLETED) {
@@ -215,7 +233,9 @@ class EbusBusStream : public EbusBusData
         synTime = esp_log_early_timestamp();
     }
 
+
 protected:
+    void ProcessResponse(EbusMessage const &msg, EbusResponse const &response);
     virtual void SendData(const uint8_t *data, int len) = 0;
     virtual int ReadByte() = 0;
 
@@ -243,7 +263,14 @@ protected:
     }
 
     std::queue<const EbusMessage*> cmd_queue;
+    std::list<EbusMonitor *> monitors;
 public:
+
+    void AddMonitor(EbusMonitor *mon)
+    {
+        monitors.push_back(mon);
+    }
+
     void QueueMessage(const EbusMessage *msg)
     {
         if (cmd_queue.size() > 10) {
@@ -276,6 +303,15 @@ public:
 };
 
 
+void EbusBusStream::ProcessResponse(EbusMessage const &msg, EbusResponse const &response)
+{
+    for( auto monitor : monitors)
+        monitor->Notify(msg, response);
+
+    EbusBusData::ProcessResponse(msg, response);
+}
+
+
 void EbusBusStream::ebusTaskCallback()
 {
     ESP_LOGI(TAG,"ebus starting");
@@ -304,10 +340,21 @@ void EbusBusStream::ebusTaskCallback()
             if (c==SYN) {
                 int oldstate = state;
                 state = 0;
+
+                if (oldstate==100){
+                    ESP_LOGI(TAG, "Failed arb %02x %02x", c, cmd->GetSource());
+                    lock_counter = lock_max;
+                    if ( cmd_retry-- == 0) {
+                        delete cmd;
+                        cmd = nullptr;
+                    }
+                }
+
                 if ( lock_counter == 0 ) {
                     if (cmd == nullptr && !cmd_queue.empty()) {
                         cmd = cmd_queue.front();
                         cmd_queue.pop();
+                        cmd_retry = 3;
                     }
                     if (cmd != nullptr) {
                         // send Source - arb
@@ -537,9 +584,9 @@ void start_ebus_task()
     auto dev91 = CreateVR91Device(1, bus);
     uartbus->AddDevice(dev91);
 
-
     auto dev91_2 = CreateVR91Device(2, bus);
     uartbus->AddDevice(dev91_2);
+
     auto dev91_3 = CreateVR91Device(3, bus);
     uartbus->AddDevice(dev91_3);
 
@@ -552,10 +599,14 @@ void start_ebus_task()
 
     EbusBus *bus32 = dev32;
     // MF=Vaillant;ID=BAI00;SW=0518;HW=7401
-    auto devBAI = CreateBAI(bus32);
+    auto devBAI = CreateBAI(bus32,2);
     bus32->AddDevice(devBAI);
-
+    
     busses[buscount++] = bus32;
+
+    devBAI = CreateBAI(uartbus,1);
+    uartbus->AddDevice(devBAI);
+
 
 // cant use vr65 with combi
 //    auto vr65 = CreateVR65Device(false, 2);
@@ -563,7 +614,9 @@ void start_ebus_task()
 
     uartbus->start();
 
-    dev->monitor = initialise_ebusd(dev);
+    dev->AddMonitor( initialise_ebusd(dev) );
+
+    uartbus->AddMonitor( initialise_mqtt(dev));
 
 }
 
@@ -668,7 +721,7 @@ void register_ebus_cmds()
     auto end = arg_end(1);
 
     ebus_data_args.data = arg_str1(NULL,NULL,"<hex>","data");
-    ebus_print_args.bus = bus;
+    ebus_data_args.bus = bus;
     ebus_data_args.end = end;
     const esp_console_cmd_t ebus_data_cmd = {
         .command = "ebus_data",

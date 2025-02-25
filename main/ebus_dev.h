@@ -184,7 +184,7 @@ public:
 
 class EbusMessageWriter : public EbusMessage
 {
-    std::size_t len;
+    std::size_t len = 0;
 public:
     bool Write(uint8_t c);
     void Reset() { len = 0;}
@@ -202,13 +202,26 @@ public:
 
 class EbusResponseWriter : public EbusResponse
 {
-    std::size_t len;
+    std::size_t len = 0;
 public:
     bool Write(uint8_t c);
     void Reset() { len = 0; buffer[0] = 0;}
     bool IsEmpty() const { return len == 0; }
     bool IsFull() const {return len == (buffer[0]+2); }
     int GetWrittenLen() const {return len;}
+};
+
+class EbusSender
+{
+public:
+    virtual void Send(EbusMessage const &msg) = 0;
+};
+
+class EbusMonitor
+{
+public:
+    virtual void NotifyBroadcast(EbusMessage const &msg) = 0;
+    virtual void Notify(EbusMessage const &msg, EbusResponse const &response) = 0;
 };
 
 class EbusDevice
@@ -250,7 +263,7 @@ protected:
     void ProcessBroadcastMessage(EbusMessage const &msg);
     void ProcessMessage(EbusMessage const &msg);
 
-    void ProcessResponse(EbusMessage const &msg, EbusResponse const &response);
+    virtual void ProcessResponse(EbusMessage const &msg, EbusResponse const &response);
 public:
     void AddDevice(EbusDevice *dev);
     void RemoveDevice(EbusDevice *dev);
@@ -269,17 +282,7 @@ protected:
     virtual void SendResponse(EbusResponse const &response);
 };
 
-class EbusSender
-{
-public:
-    virtual void Send(EbusMessage const &msg) = 0;
-};
 
-class EbusMonitor
-{
-public:
-    virtual void NotifyBroadcast(EbusMessage const &msg) = 0;
-    virtual void Notify(EbusMessage const &msg, EbusResponse const &response) = 0;
-};
 
 EbusMonitor *initialise_ebusd(EbusSender *sender);
+EbusMonitor *initialise_mqtt(EbusSender *sender);

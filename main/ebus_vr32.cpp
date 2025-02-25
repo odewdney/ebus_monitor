@@ -29,8 +29,9 @@ protected:
             prxResponse.Write(*p++);
     }
 public:
-    EbusDeviceBridge(uint8_t addr, EbusBus *b)
-        : EbusDeviceBridgeBase(addr, 0xb5, "V32  ", 0x117, 0x9802 ,b)
+    EbusDeviceBridge(uint8_t addr, uint8_t idx, EbusBus *b)
+    // s=0x117 h=0x9802
+      : EbusDeviceBridgeBase(addr, 0xb5, "V32  ", 0x117, 0x9802 ,b)
     {}
 
     bool ProcessSlaveMessage(EbusMessage const &msg, EbusResponse **response)
@@ -42,8 +43,9 @@ public:
                 EbusMessageWriter prxMsg;
                 prxMsg.Write(masterAddress);
                 auto m = msg.GetPayloadLength();
+                auto p = msg.GetPayload();
                 for(int n = 0; n < m; n++)
-                    prxMsg.Write(msg.GetPayload()[n]);
+                    prxMsg.Write(p[n]);
                 prxMsg.SetCRC();
                 //printf("prox req:");
                 prxMsg.print();
@@ -122,7 +124,8 @@ public:
 };
 
 // 1-based
-static const uint8_t VR32_addr[] = {0,0x13,0x33};
+static const uint8_t VR32_addr[] = {0,0x13,0x33,0x73,0xf3, 
+    0x1f, 0x3f, 0x7f};
 
 EbusDeviceBridgeBase *CreateBridgeDevice(uint8_t index, EbusBus *bus)
 {
@@ -131,6 +134,6 @@ EbusDeviceBridgeBase *CreateBridgeDevice(uint8_t index, EbusBus *bus)
 
     index--;
 
-    return new EbusDeviceBridge(VR32_addr[index], bus);
+    return new EbusDeviceBridge(VR32_addr[index], index, bus);
 }
 

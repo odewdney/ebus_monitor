@@ -12,7 +12,7 @@ COMPONENTS=esptool_py main freertos nvs_flash spi_flash partition_table
 COMPONENTS+=bootloader bootloader_support app_update
 COMPONENTS+=tcpip_adapter lwip mbedtls wpa_supplicant
 COMPONENTS+=log vfs newlib heap pthread
-COMPONENTS+=esp8266 esp_common esp_ringbuf esp_event
+COMPONENTS+=esp8266 esp_common esp_ringbuf esp_event tcp_transport http_parser mqtt
 COMPONENTS+=console cmd_system softserial
 
 include $(IDF_PATH)/make/project.mk

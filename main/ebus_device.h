@@ -55,7 +55,7 @@ EbusDevice *CreateVR65Device(bool isVr66 = false, uint8_t sw = 0);
 void register_vr65_cmds();
 
 EbusDeviceBridgeBase *CreateBridgeDevice(uint8_t masterAddr, EbusBus *bus);
-EbusDevice *CreateBAI(EbusBus *bus);
+EbusDevice *CreateBAI(EbusBus *bus, uint8_t index = 0);
 
 
 EbusDevice *CreateVR91Device(uint8_t sw, EbusBus *bus);
